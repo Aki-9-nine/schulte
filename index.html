@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>舒尔特方格 · 数字顺序点击</title>
+<style>
+  /* ============ 全局与配色（柔和系） ============ */
+  :root {
+    --bg:        #f4f6f9;   /* 页面背景 */
+    --card-bg:   #ffffff;   /* 卡片背景 */
+    --text:      #3a3f47;   /* 主文字 */
+    --muted:     #8a929c;   /* 次要文字 */
+    --gold:      #c99a1f;   /* 金色（最高记录） */
+    --silver:    #9aa3ad;   /* 银色（第二名） */
+    --bronze:    #b0733a;   /* 铜色（第三名） */
+    --primary:   #5b8def;   /* 主按钮/高亮 */
+    --primary-d: #4778d6;   /* 主按钮按下 */
+    --cell-bg:   #eef2f7;   /* 方格默认背景 */
+    --flash-bg:  #c9cfd8;   /* 点击正确的 0.2 秒反馈灰 */
+    --danger:    #e2574c;   /* 抖动时用的强调色（可选） */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+  /* 交互元素：禁止双击缩放、去掉点击高亮，触屏反馈更跟手 */
+  button, .cell {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 12px 48px;
+    line-height: 1.5;
+    overflow-x: hidden; /* 防止横向滚动 */
+  }
+
+  h1 {
+    font-size: 1.6rem;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 18px; }
+
+  /* ============ 排行榜（金 / 银 / 铜） ============ */
+  .records {
+    background: var(--card-bg);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    padding: 16px 22px;
+    width: min(92vw, 420px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .record {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 1.05rem;
+  }
+  .record .label { display: flex; align-items: center; gap: 8px; }
+  .record .medal { font-size: 1.25rem; line-height: 1; }
+  .rank1 { color: var(--gold); font-weight: 700; }
+  .rank2 { color: var(--silver); font-weight: 600; }
+  .rank3 { color: var(--bronze); font-weight: 600; }
+
+  /* ============ 计时器 ============ */
+  .timer {
+    font-size: 2rem;
+    font-variant-numeric: tabular-nums; /* 等宽数字，避免跳动 */
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .timer .unit { font-size: 1rem; font-weight: 400; color: var(--muted); }
+
+  /* ============ 控制区（规格切换 + 重启） ============ */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .size-group { display: flex; gap: 8px; }
+  .size-btn {
+    border: 2px solid #d6dbe1;
+    background: var(--card-bg);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 14px;
+    min-height: 44px;     /* 手指友好的最小点击高度 */
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .size-btn:hover { border-color: var(--primary); }
+  .size-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  /* 重启按钮：显眼、圆角矩形 */
+  .restart-btn {
+    border: none;
+    background: var(--primary);
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 600;
+    padding: 10px 26px;
+    min-height: 44px;     /* 手指友好的最小点击高度 */
+    border-radius: 24px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    box-shadow: 0 3px 8px rgba(91,141,239,0.35);
+  }
+  .restart-btn:hover { background: var(--primary-d); }
+  .restart-btn:active { transform: translateY(1px); }
+
+  /* ============ 方格 ============ */
+  .grid {
+    display: grid;
+    gap: 8px;
+    width: min(92vw, 480px);
+    background: var(--card-bg);
+    padding: 12px;
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    margin-bottom: 18px;
+  }
+  .cell {
+    aspect-ratio: 1 / 1;          /* 保持正方形 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--cell-bg);
+    border-radius: 8px;
+    font-size: 1.4rem;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s;
+  }
+  .cell:hover { background: #e2e9f2; }
+  /* 点击正确的即时反馈：0.2 秒灰色背景，随后自动恢复，不留持久标记 */
+  .cell.flash { background: var(--flash-bg); }
+
+  /* 抖动（唯一允许的动画效果） */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%      { transform: translateX(-6px); }
+    40%      { transform: translateX(6px); }
+    60%      { transform: translateX(-4px); }
+    80%      { transform: translateX(4px); }
+  }
+  .grid.shake { animation: shake 0.3s ease; }
+
+  /* ============ 历史记录 ============ */
+  .history {
+    background: var(--card-bg);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    padding: 16px 22px;
+    width: min(92vw, 420px);
+  }
+  .history h2 {
+    font-size: 1.05rem;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .history-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .history-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  .history-list .rank-num { color: var(--muted); }
+  .empty-tip { color: var(--muted); font-size: 0.9rem; }
+
+  /* ============ 最近十次平均值 ============ */
+  .average {
+    background: var(--card-bg);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    padding: 16px 22px;
+    width: min(92vw, 420px);
+    margin-bottom: 18px;
+  }
+  .average h2 {
+    font-size: 1.05rem;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .average .average-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary);
+  }
+  .average .average-value .unit {
+    font-size: 1rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .average .average-value.insufficient {
+    color: var(--muted);
+    font-size: 1.1rem;
+    font-weight: 400;
+  }
+
+  /* ============ 最近 7 天折线图（居左） ============ */
+  .chart-section {
+    align-self: flex-start;
+    background: var(--card-bg);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    padding: 16px 18px;
+    width: min(92vw, 480px);
+    margin: 0 0 18px 10px;
+  }
+  .chart-section h2 {
+    font-size: 1.05rem;
+    margin-bottom: 12px;
+    color: var(--text);
+    text-align: left;
+  }
+  .chart-wrap { width: 100%; }
+  .chart-wrap svg { width: 100%; height: auto; display: block; }
+  .chart-empty {
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 20px 0;
+  }
+
+  /* ============ 成绩弹窗（无动画，仅遮罩） ============ */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(30,34,40,0.45);
+    display: none;          /* 默认隐藏 */
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 32px;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+    width: min(90vw, 360px);
+  }
+  .modal h2 { font-size: 1.3rem; margin-bottom: 6px; }
+  .modal .result {
+    font-size: 2.6rem;
+    font-weight: 800;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    margin: 10px 0 4px;
+  }
+  .modal .result .unit { font-size: 1rem; font-weight: 400; color: var(--muted); }
+  .modal .detail { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+  .modal-btns { display: flex; gap: 10px; justify-content: center; }
+  .modal-btns button {
+    border: none;
+    border-radius: 20px;
+    padding: 10px 22px;
+    min-height: 44px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .modal-btns .again { background: var(--primary); color: #fff; }
+  .modal-btns .again:hover { background: var(--primary-d); }
+  .modal-btns .close { background: #e8ebf0; color: var(--text); }
+
+  /* ============ 移动端适配（窄屏 ≤600px） ============ */
+  @media (max-width: 600px) {
+    body { padding: 16px 10px 40px; }
+    .grid { gap: 6px; padding: 10px; }
+    .records, .history, .average { width: min(94vw, 420px); padding: 14px 16px; }
+    .chart-section { width: min(94vw, 480px); padding: 14px 14px; margin-left: 6px; }
+    .record { flex-wrap: wrap; gap: 4px; }
+    .timer { font-size: 1.8rem; }
+    .size-btn { padding: 12px 16px; font-size: 1.05rem; }
+    .restart-btn { padding: 12px 28px; font-size: 1.1rem; }
+    .modal { padding: 24px 22px; }
+  }
+</style>
+</head>
+<body>
+  <h1>舒尔特方格</h1>
+  <div class="subtitle">按 1 → 2 → 3 … 顺序点击，点击「1」开始计时</div>
+
+  <!-- 最近 7 天折线图（居左） -->
+  <section class="chart-section">
+    <h2>最近 7 天趋势</h2>
+    <div class="chart-wrap" id="chartWrap"></div>
+  </section>
+
+  <!-- 排行榜：最高记录（金） / 第二（银） / 第三（铜） -->
+  <div class="records">
+    <div class="record rank1">
+      <span class="label"><span class="medal">🥇</span>最高记录</span>
+      <span id="rec1">--</span>
+    </div>
+    <div class="record rank2">
+      <span class="label"><span class="medal">🥈</span>第二名</span>
+      <span id="rec2">--</span>
+    </div>
+    <div class="record rank3">
+      <span class="label"><span class="medal">🥉</span>第三名</span>
+      <span id="rec3">--</span>
+    </div>
+  </div>
+
+  <!-- 计时器 -->
+  <div class="timer"><span id="timerText">0.00</span> <span class="unit">秒</span></div>
+
+  <!-- 控制区：规格切换 + 重启 -->
+  <div class="controls">
+    <div class="size-group">
+      <button class="size-btn active" data-size="4">4 × 4</button>
+      <button class="size-btn" data-size="5">5 × 5</button>
+      <button class="size-btn" data-size="6">6 × 6</button>
+    </div>
+    <button class="restart-btn" id="restartBtn">重新开始</button>
+  </div>
+
+  <!-- 数字方格 -->
+  <div class="grid" id="grid"></div>
+
+  <!-- 历史记录（最近 10 次） -->
+  <div class="history">
+    <h2>最近记录</h2>
+    <ul class="history-list" id="historyList"></ul>
+  </div>
+
+  <!-- 最近十次平均值 -->
+  <div class="average">
+    <h2>最近十次平均</h2>
+    <div class="average-value" id="averageValue">样本不足</div>
+  </div>
+
+  <!-- 成绩弹窗 -->
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h2>🎉 完成！</h2>
+      <div class="result"><span id="resultTime">0.00</span> <span class="unit">秒</span></div>
+      <div class="detail" id="resultDetail"></div>
+      <div class="modal-btns">
+        <button class="again" id="againBtn">再来一局</button>
+        <button class="close" id="closeBtn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============ 状态 ============ */
+  var size = 4;              // 当前规格 N（4 / 5 / 6）
+  var nextNumber = 1;        // 下一个应点击的数字
+  var startTime = 0;         // 计时起点（毫秒，performance.now）
+  var running = false;       // 计时是否进行中
+  var rafId = null;          // requestAnimationFrame 句柄
+  var finished = false;      // 本局是否已结束（防止结束后继续误点）
+
+  /* ============ DOM 引用 ============ */
+  var gridEl      = document.getElementById('grid');
+  var timerEl     = document.getElementById('timerText');
+  var overlay     = document.getElementById('overlay');
+  var resultTime  = document.getElementById('resultTime');
+  var resultDetail= document.getElementById('resultDetail');
+  var historyList = document.getElementById('historyList');
+  var sizeBtns    = document.querySelectorAll('.size-btn');
+
+  /* ============ 成绩存储（localStorage + 内存后备） ============ */
+  // 每个规格单独存一个 key，值为「毫秒数」组成的数组。
+  // 内存后备用于 localStorage 不可用时（浏览器隐私模式、file:// 被禁用、
+  // 存储空间不足等）兜底，保证本页面会话内历史与排行榜仍能正常显示、不崩溃。
+  var memoryStore = {};
+
+  function storageKey(n) { return 'schulte_records_' + n; }
+
+  // 读取某规格的全部历史成绩（毫秒数组）
+  function loadRecords(n) {
+    var key = storageKey(n);
+    try {
+      var raw = localStorage.getItem(key);
+      if (raw !== null) {
+        var arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          return arr.filter(function (x) { return typeof x === 'number'; });
+        }
+      }
+    } catch (e) {
+      // localStorage 读取失败，落入内存后备
+    }
+    return (memoryStore[key] || []).slice();
+  }
+
+  // 保存某规格的全部历史成绩：先写内存后备，再尝试写 localStorage
+  function saveRecords(n, arr) {
+    var key = storageKey(n);
+    memoryStore[key] = arr.slice();
+    try {
+      localStorage.setItem(key, JSON.stringify(arr));
+    } catch (e) {
+      // localStorage 写入失败也不影响本会话（成绩已保存在内存后备中）
+    }
+  }
+
+  /* ============ 成绩日志存储（记录每次完成的时间戳，用于 7 天折线图） ============ */
+  // 与「成绩」分开存，避免破坏已有 schulte_records_* 的数据格式。
+  function logKey(n) { return 'schulte_log_' + n; }
+
+  // 读取某规格的成绩日志：[{ t: 完成时间戳(ms), ms: 用时(ms) }]
+  function loadLog(n) {
+    var key = logKey(n);
+    try {
+      var raw = localStorage.getItem(key);
+      if (raw !== null) {
+        var arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          return arr.filter(function (x) {
+            return x && typeof x.t === 'number' && typeof x.ms === 'number';
+          });
+        }
+      }
+    } catch (e) {
+      // localStorage 读取失败，落入内存后备
+    }
+    return (memoryStore[key] || []).slice();
+  }
+
+  function saveLog(n, arr) {
+    var key = logKey(n);
+    memoryStore[key] = arr.slice();
+    try {
+      localStorage.setItem(key, JSON.stringify(arr));
+    } catch (e) {
+      // localStorage 写入失败也不影响本会话
+    }
+  }
+
+  /* ============ 时间格式化 ============ */
+  // 毫秒 -> 保留两位小数的秒数字符串
+  function formatTime(ms) {
+    return (ms / 1000).toFixed(2);
+  }
+  // 带「秒」单位的完整显示文本
+  function formatTimeWithUnit(ms) {
+    return formatTime(ms) + ' 秒';
+  }
+
+  /* ============ 洗牌（Fisher–Yates） ============ */
+  function shuffle(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  /* ============ 生成方格 ============ */
+  function buildGrid() {
+    // 1 ~ N² 的数字
+    var total = size * size;
+    var numbers = [];
+    for (var i = 1; i <= total; i++) numbers.push(i);
+    shuffle(numbers);
+
+    // 设置网格列数
+    gridEl.style.gridTemplateColumns = 'repeat(' + size + ', minmax(44px, 1fr))';
+    gridEl.innerHTML = '';
+
+    // 逐格创建 DOM
+    numbers.forEach(function (n) {
+      var cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.textContent = n;
+      cell.dataset.num = n;
+      cell.addEventListener('click', onCellClick);
+      gridEl.appendChild(cell);
+    });
+
+    applyCellFontSize();   // 数字字号随实际格宽自适应
+  }
+
+  /* ============ 数字字号随格子大小自适应 ============ */
+  // 字号取格宽的 42%，并限制在 16~34px，保证 4×4 到 6×6、手机到桌面都清晰
+  function applyCellFontSize() {
+    var cells = gridEl.querySelectorAll('.cell');
+    for (var k = 0; k < cells.length; k++) {
+      var w = cells[k].clientWidth;
+      if (!w) w = 60;
+      var px = Math.round(w * 0.42);
+      px = Math.max(16, Math.min(34, px));
+      cells[k].style.fontSize = px + 'px';
+    }
+  }
+
+  /* ============ 计时 ============ */
+  function startTimer() {
+    if (running) return;
+    running = true;
+    startTime = performance.now();
+    // 每帧刷新计时显示
+    function tick() {
+      if (!running) return;
+      timerEl.textContent = formatTime(performance.now() - startTime);
+      rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopTimer() {
+    running = false;
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    return performance.now() - startTime; // 返回最终用时（毫秒）
+  }
+
+  function resetTimerDisplay() {
+    timerEl.textContent = '0.00';
+  }
+
+  /* ============ 重新开始 / 换规格 ============ */
+  function resetGame() {
+    stopTimer();           // 停止计时并清空句柄
+    nextNumber = 1;
+    finished = false;
+    resetTimerDisplay();
+    buildGrid();
+    gridEl.classList.remove('shake');
+  }
+
+  function setSize(newSize) {
+    if (newSize === size) return;
+    size = newSize;
+    // 高亮当前规格按钮
+    sizeBtns.forEach(function (btn) {
+      btn.classList.toggle('active', Number(btn.dataset.size) === size);
+    });
+    resetGame();           // 换规格后重置方格和计时
+    renderLeaderboard();   // 排行榜 / 历史随规格切换
+    renderHistory();
+    renderAverage();
+    renderChart();
+  }
+
+  /* ============ 抖动提示（唯一动画） ============ */
+  function shakeGrid() {
+    gridEl.classList.remove('shake');
+    // 强制重排，保证连续点错也能重新触发动画
+    void gridEl.offsetWidth;
+    gridEl.classList.add('shake');
+    // 动画结束后移除类，避免残留
+    gridEl.addEventListener('animationend', function handler() {
+      gridEl.classList.remove('shake');
+      gridEl.removeEventListener('animationend', handler);
+    });
+  }
+
+  /* ============ 点击正确的 0.2 秒反馈（无动画、无持久状态） ============ */
+  function flashCell(cell) {
+    cell.classList.add('flash');
+    setTimeout(function () {
+      cell.classList.remove('flash');
+    }, 200);
+  }
+
+  /* ============ 方格点击处理 ============ */
+  function onCellClick(e) {
+    if (finished) return;                 // 本局已结束，忽略点击
+    var cell = e.currentTarget;
+    var num = Number(cell.dataset.num);
+
+    if (num === nextNumber) {
+      // 点击正确：仅做 0.2 秒灰色反馈，不留任何持久标记
+      flashCell(cell);
+      nextNumber++;
+
+      // 点击数字 1 时自动开始计时
+      if (num === 1) {
+        startTimer();
+      }
+
+      // 点完最后一个数字：停止计时并结算
+      if (nextNumber > size * size) {
+        finished = true;
+        var ms = stopTimer();
+        timerEl.textContent = formatTime(ms);
+        recordResult(ms);
+        showResult(ms);
+      }
+    } else {
+      // 点错（含重复点击已点过的数字）：不响应，仅轻微抖动
+      shakeGrid();
+    }
+  }
+
+  /* ============ 成绩入库 & 弹窗 ============ */
+  function recordResult(ms) {
+    var records = loadRecords(size);
+    records.push(ms);
+    saveRecords(size, records);
+
+    // 记录完成时间戳（用于最近 7 天折线图）
+    var log = loadLog(size);
+    log.push({ t: Date.now(), ms: ms });
+    saveLog(size, log);
+
+    renderLeaderboard();
+    renderHistory();
+    renderAverage();
+    renderChart();
+  }
+
+  function showResult(ms) {
+    resultTime.textContent = formatTime(ms);
+    resultDetail.textContent = size + ' × ' + size + ' 方格完成';
+    overlay.classList.add('show');
+  }
+
+  /* ============ 排行榜渲染（金/银/铜，取历史最快前三） ============ */
+  function renderLeaderboard() {
+    var records = loadRecords(size).slice().sort(function (a, b) { return a - b; }); // 升序 = 最快在前
+    var ids = ['rec1', 'rec2', 'rec3'];
+    for (var i = 0; i < 3; i++) {
+      var el = document.getElementById(ids[i]);
+      el.textContent = records[i] !== undefined ? formatTimeWithUnit(records[i]) : '--';
+    }
+  }
+
+  /* ============ 历史记录渲染（最近 10 次，最新在前） ============ */
+  function renderHistory() {
+    var records = loadRecords(size);
+    var recent = records.slice(-10).reverse(); // 取末尾 10 条再反转 => 最新在前
+    historyList.innerHTML = '';
+
+    if (recent.length === 0) {
+      var empty = document.createElement('li');
+      empty.className = 'empty-tip';
+      empty.textContent = '暂无记录，完成一局后显示';
+      historyList.appendChild(empty);
+      return;
+    }
+
+    recent.forEach(function (ms, i) {
+      var li = document.createElement('li');
+      var num = document.createElement('span');
+      num.className = 'rank-num';
+      num.textContent = '#' + (i + 1);
+      var time = document.createElement('span');
+      time.textContent = formatTimeWithUnit(ms);
+      li.appendChild(num);
+      li.appendChild(time);
+      historyList.appendChild(li);
+    });
+  }
+
+  /* ============ 最近十次平均值渲染 ============ */
+  function renderAverage() {
+    var records = loadRecords(size);
+    var avgEl = document.getElementById('averageValue');
+
+    // 少于 3 条时显示「样本不足」
+    if (records.length < 3) {
+      avgEl.textContent = '样本不足';
+      avgEl.classList.add('insufficient');
+      return;
+    }
+
+    // 取最近 10 条（不足 10 条有几条算几条）求平均
+    var recent = records.slice(-10);
+    var sum = 0;
+    for (var i = 0; i < recent.length; i++) sum += recent[i];
+    var avgSec = sum / recent.length / 1000;
+
+    avgEl.classList.remove('insufficient');
+    avgEl.textContent = '';
+    var numSpan = document.createElement('span');
+    numSpan.textContent = avgSec.toFixed(2);
+    var unitSpan = document.createElement('span');
+    unitSpan.className = 'unit';
+    unitSpan.textContent = ' 秒';
+    avgEl.appendChild(numSpan);
+    avgEl.appendChild(unitSpan);
+  }
+
+  /* ============ 最近 7 天折线图渲染 ============ */
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function dateKeyOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function formatTick(v) { return Number(v.toFixed(2)).toString(); }
+  function niceCeil(v) {
+    if (v <= 0) return 1;
+    var exp = Math.floor(Math.log10(v));
+    var base = Math.pow(10, exp);
+    var f = v / base;
+    var nf = (f <= 1) ? 1 : (f <= 2) ? 2 : (f <= 5) ? 5 : 10;
+    return nf * base;
+  }
+
+  function renderChart() {
+    var wrap = document.getElementById('chartWrap');
+    var log = loadLog(size);
+
+    // 最近 7 天（含今天），旧 -> 新
+    var days = [];
+    var now = new Date();
+    for (var i = 6; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      days.push({ key: dateKeyOf(d), label: (d.getMonth() + 1) + '/' + d.getDate() });
+    }
+
+    // 按天累计用时（毫秒）与次数
+    var sumMap = {}, cntMap = {};
+    for (var j = 0; j < log.length; j++) {
+      var k = dateKeyOf(new Date(log[j].t));
+      if (sumMap[k] === undefined) { sumMap[k] = 0; cntMap[k] = 0; }
+      sumMap[k] += log[j].ms;
+      cntMap[k]++;
+    }
+
+    // 生成数据点：只有有成绩的日期才有点，空缺日直接跳过
+    var points = [];
+    var maxVal = 0;
+    for (var di = 0; di < days.length; di++) {
+      var key = days[di].key;
+      if (cntMap[key] > 0) {
+        var avgSec = sumMap[key] / cntMap[key] / 1000;
+        points.push({ dayIndex: di, label: days[di].label, avg: avgSec });
+        if (avgSec > maxVal) maxVal = avgSec;
+      }
+    }
+
+    wrap.innerHTML = '';
+
+    if (points.length === 0) {
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'chart-empty';
+      emptyEl.textContent = '最近 7 天暂无成绩';
+      wrap.appendChild(emptyEl);
+      return;
+    }
+
+    var yMax = niceCeil(maxVal);
+
+    // SVG 布局常量
+    var W = 600, H = 240;
+    var ML = 52, MR = 16, MT = 36, MB = 36;
+    var plotW = W - ML - MR;
+    var plotH = H - MT - MB;
+    var GOLD = '#c99a1f';
+    var BLUE = '#1e3a8a';
+    var MUTED = '#8a929c';
+    var GRID = '#e6eaf0';
+
+    function xAt(di) { return ML + plotW * di / 6; }
+    function yAt(v) { return MT + plotH * (1 - v / yMax); }
+
+    var parts = [];
+    parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="最近 7 天折线图">');
+
+    // y 轴刻度与浅色网格线（0 / 中点 / 最大值）
+    var yTicks = [0, yMax / 2, yMax];
+    for (var t = 0; t < yTicks.length; t++) {
+      var yv = yTicks[t];
+      var yy = yAt(yv);
+      parts.push('<line x1="' + ML + '" y1="' + yy + '" x2="' + (W - MR) + '" y2="' + yy + '" stroke="' + GRID + '" stroke-width="1"/>');
+      parts.push('<text x="' + (ML - 8) + '" y="' + (yy + 4) + '" text-anchor="end" font-size="11" fill="' + MUTED + '">' + formatTick(yv) + '</text>');
+    }
+
+    // 轴线（金色）
+    parts.push('<line x1="' + ML + '" y1="' + (H - MB) + '" x2="' + (W - MR) + '" y2="' + (H - MB) + '" stroke="' + GOLD + '" stroke-width="1.5"/>');
+    parts.push('<line x1="' + ML + '" y1="' + MT + '" x2="' + ML + '" y2="' + (H - MB) + '" stroke="' + GOLD + '" stroke-width="1.5"/>');
+
+    // 日期刻度（最近 7 天全部标注）
+    for (var dx = 0; dx < days.length; dx++) {
+      parts.push('<text x="' + xAt(dx) + '" y="' + (H - MB + 18) + '" text-anchor="middle" font-size="11" fill="' + MUTED + '">' + days[dx].label + '</text>');
+    }
+
+    // 折线：仅连接相邻日期的点，跨空缺日不连线
+    for (var p = 0; p < points.length - 1; p++) {
+      if (points[p + 1].dayIndex - points[p].dayIndex === 1) {
+        parts.push('<line x1="' + xAt(points[p].dayIndex) + '" y1="' + yAt(points[p].avg) +
+                   '" x2="' + xAt(points[p + 1].dayIndex) + '" y2="' + yAt(points[p + 1].avg) +
+                   '" stroke="' + BLUE + '" stroke-width="2"/>');
+      }
+    }
+
+    // 数据点 + 数值标注（深蓝色）
+    for (var q = 0; q < points.length; q++) {
+      var px = xAt(points[q].dayIndex);
+      var py = yAt(points[q].avg);
+      parts.push('<circle cx="' + px + '" cy="' + py + '" r="3.5" fill="' + BLUE + '" stroke="#fff" stroke-width="1"/>');
+      parts.push('<text x="' + px + '" y="' + (py - 8) + '" text-anchor="middle" font-size="11" font-weight="600" fill="' + BLUE + '">' + points[q].avg.toFixed(2) + '</text>');
+    }
+
+    parts.push('</svg>');
+    wrap.innerHTML = parts.join('');
+  }
+
+  /* ============ 事件绑定 ============ */
+  // 窗口尺寸变化时重算数字字号（例如手机旋转方向）
+  var resizeRaf = null;
+  window.addEventListener('resize', function () {
+    if (resizeRaf) cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(applyCellFontSize);
+  });
+
+  // 规格切换按钮
+  sizeBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setSize(Number(btn.dataset.size));
+    });
+  });
+
+  // 重启按钮
+  document.getElementById('restartBtn').addEventListener('click', function () {
+    resetGame();
+  });
+
+  // 弹窗按钮
+  document.getElementById('againBtn').addEventListener('click', function () {
+    overlay.classList.remove('show');
+    resetGame();
+  });
+  document.getElementById('closeBtn').addEventListener('click', function () {
+    overlay.classList.remove('show');
+  });
+  // 点击遮罩空白处也可关闭弹窗
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) overlay.classList.remove('show');
+  });
+
+  /* ============ 初始化 ============ */
+  resetGame();
+  renderLeaderboard();
+  renderHistory();
+  renderAverage();
+  renderChart();
+})();
+</script>
+</body>
+</html>
